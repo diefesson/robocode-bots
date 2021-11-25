@@ -20,6 +20,7 @@ public class TerminatorUnit extends AdvancedRobot {
 	private double moveDirection = 1;
 	private Vec2D targetPosition = null;
 	private Vec2D targetSpeed = null;
+	private Vec2D targetShootPosition = null;
 	private long lastSeen = 9999;
 
     // Init and update
@@ -66,6 +67,12 @@ public class TerminatorUnit extends AdvancedRobot {
 	private void collect(long deltaTime){
 		lastSeen += deltaTime;
 		myPosition = new Vec2D(getX(), getY());
+		if (isInfoNew()){
+			double distance = myPosition.distance(targetPosition);
+			double bulletDelay = Util.bulletDelay(distance, POWER);
+			targetShootPosition = targetPosition.move(targetSpeed, bulletDelay);
+			targetShootPosition = targetShootPosition.limit(getBattleFieldWidth(), getBattleFieldHeight());
+		}
 	}
 	
 	private void predict(long deltaTime){
@@ -89,9 +96,7 @@ public class TerminatorUnit extends AdvancedRobot {
 	private void updateGun(){
 		if (isInfoNew()){
 			double gunAngle = getGunHeading();
-			double distance = myPosition.distance(targetPosition);
-			double bulletDelay = Util.bulletDelay(distance);
-			double targetShootAngle = myPosition.look(targetPosition.move(targetSpeed, bulletDelay));
+			double targetShootAngle = myPosition.look(targetShootPosition);
 			double gunDelta = Util.angleDelta(gunAngle, targetShootAngle);
 			gunDelta = Util.limit(gunDelta, GUN_LIMIT);
 			setTurnGunRight(gunDelta);
@@ -103,9 +108,9 @@ public class TerminatorUnit extends AdvancedRobot {
 	
 	private void updateMove(){
 		if(isInfoNew()){
-			double desiredAngle = myPosition.look(targetPosition) + 90;
-			double currentAngle = getHeading();
-			double deltaAngle = Util.angleDelta(currentAngle, desiredAngle);
+			double targetAngle = myPosition.look(targetPosition);
+			double sideAngle = getHeading() + 90;
+			double deltaAngle = Util.angleDelta(sideAngle, targetAngle);
 			setTurnRight(deltaAngle);
 		}
 		setAhead(8 * moveDirection);
@@ -158,7 +163,9 @@ public class TerminatorUnit extends AdvancedRobot {
 	public void onPaint(Graphics2D graphics){
 		if (isInfoNew()){
 			Util.drawPoint(graphics, Color.RED, targetPosition, 10);
-			Util.drawPoint(graphics, Color.YELLOW, targetPosition.add(targetSpeed), 10);
+			Util.drawPoint(graphics, Color.ORANGE, targetPosition.add(targetSpeed), 10);
+			Util.drawPoint(graphics, Color.YELLOW, targetShootPosition, 10);
+			Util.drawAngle(graphics, Color.YELLOW, myPosition, getGunHeading(), 1000);
 		}
 	}
 
@@ -194,6 +201,13 @@ class Vec2D{
 		return Math.hypot(x - other.x, y - other.y);
 	}
 	
+	public Vec2D limit(double width, double height){
+		return new Vec2D(
+			Util.constrain(x, 0, width),
+			Util.constrain(y, 0, height)
+		);
+	}
+	
 	public Vec2D move(Vec2D speed, double time){
 		return add(speed.mul(time));
 	}
@@ -224,16 +238,20 @@ class Vec2D{
 
 class Util{
 	
-	public static double bulletDelay(double distance){
-		return distance / 20;
+	public static double bulletDelay(double distance, double power){
+		return distance / (20 - 3 * power);
 	}
 	
 	public static double limit(double value, double limit){
-		if (value < (-limit)){
-			return -limit;
+		return constrain(value, -limit, limit);
+	}
+
+	public static double constrain(double value, double low, double high){
+		if (value < low){
+			return low;
 		}
-		if(value > limit){
-			return limit;
+		if(high < value){
+			return high;
 		}
 		return value;
 	}
@@ -253,9 +271,14 @@ class Util{
 		graphics.fillRect((int) x, (int) y, (int) size, (int) size);
 	}
 	
-	public static void drawAngle(Graphics2D graphics, Color color, Vec2D from, Vec2D to){
+	public static void drawLine(Graphics2D graphics, Color color, Vec2D from, Vec2D to){
 		graphics.setColor(color);
 		graphics.drawLine((int) from.x, (int) from.y, (int) to.x, (int) to.y);
+	}
+	
+	public static void drawAngle(Graphics2D graphics, Color color, Vec2D from, double angle, double distance){
+		Vec2D to = from.move(Vec2D.fromAngle(angle), distance);
+		drawLine(graphics, color, from, to);
 	}
 
 }
