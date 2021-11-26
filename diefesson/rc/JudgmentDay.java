@@ -10,20 +10,30 @@ import java.awt.Graphics2D;
  */
 public class JudgmentDay extends AdvancedRobot {
 
-	private final long TARGET_UPDATED_LIMIT = 10;
-	private final double RADAR_BLIND_SEARCH = 50;
-	private final double GUN_LIMIT = 20;
-	private final double MOVE_SPEED = 8;
-	private final double TURN_SPEED = 10;
-	private final double POWER = 1;
-	private final double OVERSCAN = 30;
+	// Config
+	private static final long TARGET_UPDATED_LIMIT = 10;
+	private static final double RADAR_BLIND_SEARCH = 50;
+	private static final double NEAR_POWER = 3;
+	private static final double POWER = 2;
+	private static final double FAR_POWER = 1;
+	private static final double OVERSCAN = 30;
+	private static final double CORRECTION_RATE = 45;
+	private static final double NEAR = 100;
+	private static final double FAR = 300;
 
-	private Vec2D myPosition = null;
+	// State
 	private double moveDirection = 1;
-	private String targetName = null;
-	private Vec2D targetPosition = null;
-	private Vec2D targetSpeed = null;
-	private Vec2D targetShootPosition = null;
+
+	// Input
+	private String targetName;
+	private Vec2D targetPosition;
+	private Vec2D targetSpeed;
+
+	// Calculated
+	private Vec2D myPosition;
+	private Vec2D targetShootPosition;
+	private double targetDistance;
+	private double targetAngle;
 	private long lastTargetUpdate = -9999;
 
 	// Init and update
@@ -38,7 +48,7 @@ public class JudgmentDay extends AdvancedRobot {
 			deltaTime = time - lastTime;
 			lastTime = time;
 			out.println("time: " + time + ", delta: " + deltaTime);
-			update(deltaTime);
+			update();
 		}
 	}
 
@@ -53,9 +63,9 @@ public class JudgmentDay extends AdvancedRobot {
 		setAdjustGunForRobotTurn(true);
 	}
 
-	private void update(long deltaTime) {
-		// Update some basic info
-		collect(deltaTime);
+	private void update() {
+		// calculate info from input
+		calculate();
 
 		// Update actions
 		updateRadar();
@@ -64,29 +74,25 @@ public class JudgmentDay extends AdvancedRobot {
 		execute();
 
 		// Predict world info for the next turn
-		predict(deltaTime);
+		predict();
 	}
 
-	private void collect(long deltaTime) {
+	private void calculate() {
 		myPosition = new Vec2D(getX(), getY());
 		if (isTargetUpdated()) {
-			double distance = myPosition.distance(targetPosition);
-			double bulletDelay = DUtils.bulletDelay(distance, POWER);
-			targetShootPosition = targetPosition.move(targetSpeed, bulletDelay);
-			targetShootPosition = targetShootPosition.limit(getBattleFieldWidth(), getBattleFieldHeight());
+			calculateTarget();
 		}
 	}
 
-	private void predict(long deltaTime) {
+	private void predict() {
 		if (isTargetUpdated()) {
-			targetPosition = targetPosition.move(targetSpeed, deltaTime);
+			targetPosition = targetPosition.add(targetSpeed);
 		}
 	}
 
 	private void updateRadar() {
 		if (isTargetUpdated()) {
 			double radarAngle = getRadarHeading();
-			double targetAngle = myPosition.look(targetPosition);
 			double radarDelta = DUtils.calculateRadar(radarAngle, targetAngle, OVERSCAN);
 			setTurnRadarRight(radarDelta);
 		} else {
@@ -101,23 +107,34 @@ public class JudgmentDay extends AdvancedRobot {
 			double gunDelta = Utils.normalRelativeAngleDegrees(targetShootAngle - gunAngle);
 			setTurnGunRight(gunDelta);
 			if (getGunHeat() == 0) {
-				setFire(POWER);
+				double power = POWER;
+				if (targetDistance > FAR){
+					power = FAR_POWER;
+				} else if (targetDistance < NEAR){
+					power = NEAR_POWER;
+				}
+				setFire(power);
 			}
 		}
 	}
 
 	private void updateMove() {
 		if (isTargetUpdated()) {
-			double targetAngle = myPosition.look(targetPosition);
+			targetAngle = myPosition.look(targetPosition);
 			double rightAngle = getHeading() + 90;
 			double rightDelta = Utils.normalRelativeAngleDegrees(targetAngle - rightAngle);
 			double leftAngle = getHeading() - 90;
 			double leftDelta = Utils.normalRelativeAngleDegrees(targetAngle - leftAngle);
-			if (Math.abs(leftDelta) < Math.abs(rightDelta)) {
-				setTurnRight(leftDelta);
-			} else {
-				setTurnRight(rightDelta);
+			double side = (Math.abs(leftDelta) < Math.abs(rightDelta)) ? -1 : 1;
+			double delta = (side < 0) ? leftDelta : rightDelta;
+			if (targetDistance > FAR) {
+				delta += moveDirection + side * moveDirection * CORRECTION_RATE;
+			} else if (targetDistance < NEAR) {
+				delta += moveDirection + side * moveDirection * -CORRECTION_RATE;
 			}
+			setTurnRight(delta);
+		} else {
+			setTurnRight(0);
 		}
 		setAhead(8 * moveDirection);
 	}
@@ -126,6 +143,14 @@ public class JudgmentDay extends AdvancedRobot {
 
 	private boolean isTargetUpdated() {
 		return (getTime() - lastTargetUpdate) < TARGET_UPDATED_LIMIT;
+	}
+
+	private void calculateTarget(){
+		targetDistance = myPosition.distance(targetPosition);
+		targetAngle = myPosition.look(targetPosition);
+		double bulletDelay = DUtils.bulletDelay(targetDistance, POWER);
+		targetShootPosition = targetPosition.move(targetSpeed, bulletDelay);
+		targetShootPosition = targetShootPosition.limit(getBattleFieldWidth(), getBattleFieldHeight());
 	}
 
 	private void invertMoveDirection() {
@@ -143,23 +168,13 @@ public class JudgmentDay extends AdvancedRobot {
 		double tarVelocity = event.getVelocity();
 		double tarHeading = event.getHeading() % 360;
 		targetSpeed = Vec2D.fromAngle(tarHeading).mul(tarVelocity);
+		calculateTarget();
 	}
 
 	// Events
 
 	public void onScannedRobot(ScannedRobotEvent event) {
-		if (isTargetUpdated()) {
-			String name = event.getName();
-			if (targetName.equals(name)) {
-				updateTarget(event);
-			} else {
-				double distance = event.getDistance();
-				double currentDistance = myPosition.distance(targetPosition);
-				if (distance < currentDistance) {
-					updateTarget(event);
-				}
-			}
-		} else {
+		if (!isTargetUpdated() || targetName.equals(event.getName()) || event.getDistance() < targetDistance) {
 			updateTarget(event);
 		}
 	}
@@ -168,14 +183,14 @@ public class JudgmentDay extends AdvancedRobot {
 		double hitAngle = (getHeading() + event.getBearing()) % 360;
 		double radarAngle = getRadarHeading();
 		double radarDelta = DUtils.calculateRadar(radarAngle, hitAngle, OVERSCAN);
-		turnRadarRight(radarDelta);
+		setTurnRadarRight(radarDelta);
 	}
 
 	public void onHitRobot(HitRobotEvent event) {
 		double hitAngle = (getHeading() + event.getBearing()) % 360;
 		double radarAngle = getRadarHeading();
 		double radarDelta = DUtils.calculateRadar(radarAngle, hitAngle, OVERSCAN);
-		turnRadarRight(radarDelta);
+		setTurnRadarRight(radarDelta);
 	}
 
 	public void onHitWall(HitWallEvent event) {
@@ -186,12 +201,19 @@ public class JudgmentDay extends AdvancedRobot {
 		setAllColors(Color.RED);
 	}
 
+	public void onSkippedTurn(SkippedTurnEvent event) {
+		out.println("ALERT: skipped " + event.getSkippedTurn() + "turns");
+	}
+
 	public void onPaint(Graphics2D graphics) {
 		if (isTargetUpdated()) {
 			DUtils.drawPoint(graphics, Color.RED, targetPosition, 10);
 			DUtils.drawPoint(graphics, Color.ORANGE, targetPosition.add(targetSpeed), 10);
 			DUtils.drawPoint(graphics, Color.YELLOW, targetShootPosition, 10);
 			DUtils.drawAngle(graphics, Color.YELLOW, myPosition, getGunHeading(), 1000);
+			DUtils.drawCircle(graphics, Color.GRAY, myPosition, NEAR);
+			DUtils.drawCircle(graphics, Color.YELLOW, myPosition, targetDistance);
+			DUtils.drawCircle(graphics, Color.GRAY, myPosition, FAR);
 		}
 	}
 
@@ -231,15 +253,6 @@ public class JudgmentDay extends AdvancedRobot {
 
 		public Vec2D move(Vec2D speed, double time) {
 			return add(speed.mul(time));
-		}
-
-		public double magnitude() {
-			return Math.sqrt(x * x + y * y);
-		}
-
-		public Vec2D normal() {
-			double magnitude = magnitude();
-			return new Vec2D(x / magnitude, y / magnitude);
 		}
 
 		public double angle() {
@@ -293,6 +306,14 @@ public class JudgmentDay extends AdvancedRobot {
 		public static void drawAngle(Graphics2D graphics, Color color, Vec2D from, double angle, double distance) {
 			Vec2D to = from.move(Vec2D.fromAngle(angle), distance);
 			drawLine(graphics, color, from, to);
+		}
+
+		public static void drawCircle(Graphics2D graphics, Color color, Vec2D center, double radius) {
+			graphics.setColor(color);
+			int x = (int) (center.x - radius);
+			int y = (int) (center.y - radius);
+			int size = (int) (radius * 2);
+			graphics.drawArc(x, y, size, size, 0, 360);
 		}
 
 	}
