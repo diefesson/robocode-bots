@@ -11,12 +11,12 @@ import java.awt.Graphics2D;
 public class JudgmentDay extends AdvancedRobot {
 
 	// Config
+	private static final boolean LOCK = true;
 	private static final long TARGET_UPDATED_LIMIT = 10;
-	private static final double RADAR_BLIND_SEARCH = 50;
 	private static final double NEAR_POWER = 3;
 	private static final double POWER = 2;
 	private static final double FAR_POWER = 1;
-	private static final double OVERSCAN = 30;
+	private static final double OVERSCAN = 60;
 	private static final double CORRECTION_RATE = 45;
 	private static final double NEAR = 100;
 	private static final double FAR = 300;
@@ -38,6 +38,7 @@ public class JudgmentDay extends AdvancedRobot {
 
 	// Init and update
 
+	@Override
 	public void run() {
 		init();
 		long lastTime = getTime();
@@ -91,12 +92,15 @@ public class JudgmentDay extends AdvancedRobot {
 	}
 
 	private void updateRadar() {
-		if (isTargetUpdated()) {
+		if (getRadarTurnRemaining() > 0){
+			return;
+		}
+		if (LOCK && isTargetUpdated()) {
 			double radarAngle = getRadarHeading();
 			double radarDelta = DUtils.calculateRadar(radarAngle, targetAngle, OVERSCAN);
 			setTurnRadarRight(radarDelta);
 		} else {
-			setTurnRadarRight(RADAR_BLIND_SEARCH);
+			setTurnRadarRight(360);
 		}
 	}
 
@@ -108,9 +112,9 @@ public class JudgmentDay extends AdvancedRobot {
 			setTurnGunRight(gunDelta);
 			if (getGunHeat() == 0) {
 				double power = POWER;
-				if (targetDistance > FAR){
+				if (targetDistance > FAR) {
 					power = FAR_POWER;
-				} else if (targetDistance < NEAR){
+				} else if (targetDistance < NEAR) {
 					power = NEAR_POWER;
 				}
 				setFire(power);
@@ -145,7 +149,7 @@ public class JudgmentDay extends AdvancedRobot {
 		return (getTime() - lastTargetUpdate) < TARGET_UPDATED_LIMIT;
 	}
 
-	private void calculateTarget(){
+	private void calculateTarget() {
 		targetDistance = myPosition.distance(targetPosition);
 		targetAngle = myPosition.look(targetPosition);
 		double bulletDelay = DUtils.bulletDelay(targetDistance, POWER);
@@ -173,38 +177,47 @@ public class JudgmentDay extends AdvancedRobot {
 
 	// Events
 
+	@Override
 	public void onScannedRobot(ScannedRobotEvent event) {
 		if (!isTargetUpdated() || targetName.equals(event.getName()) || event.getDistance() < targetDistance) {
 			updateTarget(event);
 		}
 	}
 
+	@Override
 	public void onHitByBullet(HitByBulletEvent event) {
 		double hitAngle = (getHeading() + event.getBearing()) % 360;
 		double radarAngle = getRadarHeading();
 		double radarDelta = DUtils.calculateRadar(radarAngle, hitAngle, OVERSCAN);
 		setTurnRadarRight(radarDelta);
+		invertMoveDirection();
 	}
 
+	@Override
 	public void onHitRobot(HitRobotEvent event) {
 		double hitAngle = (getHeading() + event.getBearing()) % 360;
 		double radarAngle = getRadarHeading();
 		double radarDelta = DUtils.calculateRadar(radarAngle, hitAngle, OVERSCAN);
 		setTurnRadarRight(radarDelta);
+		invertMoveDirection();
 	}
 
+	@Override
 	public void onHitWall(HitWallEvent event) {
 		invertMoveDirection();
 	}
 
+	@Override
 	public void onWin(WinEvent event) {
 		setAllColors(Color.RED);
 	}
 
+	@Override
 	public void onSkippedTurn(SkippedTurnEvent event) {
 		out.println("ALERT: skipped " + event.getSkippedTurn() + "turns");
 	}
 
+	@Override
 	public void onPaint(Graphics2D graphics) {
 		if (isTargetUpdated()) {
 			DUtils.drawPoint(graphics, Color.RED, targetPosition, 10);
