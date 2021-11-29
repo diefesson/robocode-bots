@@ -130,7 +130,8 @@ public class WeirdmagedonV2 extends TeamRobot {
 			if (DODGE && 1 <= targetEnergyDelta && targetEnergyDelta <= 3) {
 				invertMoveDirection();
 			}
-			if (DUtils.iminentWallImpact(myPosition, getHeading(), moveDirection, WALL_LIMIT, getBattleFieldWidth(), getBattleFieldHeight())){
+			if (DUtils.iminentWallImpact(myPosition, getHeading(), moveDirection, WALL_LIMIT, getBattleFieldWidth(),
+					getBattleFieldHeight())) {
 				invertMoveDirection();
 			}
 		}
@@ -489,14 +490,13 @@ public class WeirdmagedonV2 extends TeamRobot {
 			return bestPosition;
 		}
 
-		public static boolean iminentWallImpact(Vec2D position, double heading, double direction, double limit, double width, double height){
+		public static boolean iminentWallImpact(Vec2D position, double heading, double direction, double limit,
+				double width, double height) {
 			Vec2D speed2D = Vec2D.fromAngle(heading).mul(direction);
-			return (
-				speed2D.x < 0 && position.x < limit ||
-				speed2D.y < 0 && position.y < limit ||
-				0 < speed2D.x && width - limit < position.x ||
-				0 < speed2D.y && height - limit < position.y 
-			);
+			return speed2D.x < 0 && position.x < limit ||
+					speed2D.y < 0 && position.y < limit ||
+					0 < speed2D.x && width - limit < position.x ||
+					0 < speed2D.y && height - limit < position.y;
 		}
 
 		public static void drawPoint(Graphics2D graphics, Color color, Vec2D position, double size) {
