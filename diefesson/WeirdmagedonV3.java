@@ -9,7 +9,6 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.ArrayList;
-import java.util.Arrays;
 
 import robocode.*;
 import robocode.util.Utils;
@@ -113,7 +112,6 @@ public class WeirdmagedonV3 extends TeamRobot {
         setColors();
         setAdjusts();
         arena = new Rectangle(18, 18, getBattleFieldWidth() - 18, getBattleFieldHeight() - 18);
-        Arrays.fill(safeCandidates, Vec2D.ZERO);
         arenaLimits = new Rectangle(
                 arena.xS + ARENA_LIMIT,
                 arena.yS + ARENA_LIMIT,
@@ -139,6 +137,7 @@ public class WeirdmagedonV3 extends TeamRobot {
         dispatchMessages();
         calculate();
         update();
+        paint();
         predict();
     }
 
@@ -471,8 +470,8 @@ public class WeirdmagedonV3 extends TeamRobot {
         out.println("ALERT: skipped " + event.getSkippedTurn() + "turns");
     }
 
-    @Override
-    public void onPaint(Graphics2D graphics) {
+    public void paint() {
+        Graphics2D graphics = getGraphics();
         if (PAINT_RANGES) {
             DUtils.drawCircle(graphics, Color.GRAY, myPosition, NEAR);
             DUtils.drawCircle(graphics, Color.GRAY, myPosition, FAR);
@@ -489,7 +488,7 @@ public class WeirdmagedonV3 extends TeamRobot {
 
             DUtils.drawCircle(graphics, Color.YELLOW, myPosition, targetDistance);
         }
-        if (PAINT_WAVES && !waves.isEmpty()) {
+        if (!waves.isEmpty() && PAINT_WAVES) {
             for (Vec2D candidate : safeCandidates) {
                 DUtils.drawPoint(graphics, Color.WHITE, candidate, 5);
             }
