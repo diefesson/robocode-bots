@@ -1,11 +1,7 @@
-package diefesson.rc;
+package diefesson;
 
 import java.awt.Color;
 import java.awt.Graphics2D;
-import java.io.IOException;
-import java.io.Serializable;
-import java.util.Set;
-import java.util.HashSet;
 
 import robocode.*;
 import robocode.util.Utils;
@@ -13,7 +9,7 @@ import robocode.util.Utils;
 /**
  * Weirdmagedon - a robot by Diefesson de Sousa Silva
  */
-public class WeirdmagedonV2 extends TeamRobot {
+public class WeirdmagedonV1 extends AdvancedRobot {
 
 	// Config - target abandon
 	private static final long LAST_SCAN_LIMIT = 10;
@@ -30,11 +26,9 @@ public class WeirdmagedonV2 extends TeamRobot {
 	private static final boolean LOCK = true;
 
 	// Config - movement
-	private static final boolean DODGE = true;
 	private static final double CORRECTION_RATE = 45;
-	private static final double NEAR = 150;
+	private static final double NEAR = 100;
 	private static final double FAR = 250;
-	private static final double WALL_LIMIT = 50;
 
 	// Config - movement prediction
 	private static final int PREDICTION_COUNT = 35;
@@ -48,8 +42,6 @@ public class WeirdmagedonV2 extends TeamRobot {
 	private double targetAngularSpeed;
 	private double targetPriorHeading;
 	private double targetHeading;
-	private double targetPriorEnergy;
-	private double targetEnergy;
 	private long priorScanTime;
 	private long scanTime = -9999;
 	private Vec2D[] predictions = new Vec2D[PREDICTION_COUNT];
@@ -57,7 +49,6 @@ public class WeirdmagedonV2 extends TeamRobot {
 	private double targetDistance;
 	private double targetAngle;
 	private Vec2D myPosition;
-	private Set<Message> messageBuffer = new HashSet<>();
 
 	// Init and update
 
@@ -73,7 +64,6 @@ public class WeirdmagedonV2 extends TeamRobot {
 			lastTime = time;
 			out.println("time: " + time + ", delta: " + deltaTime);
 			update();
-			execute();
 		}
 	}
 
@@ -89,7 +79,6 @@ public class WeirdmagedonV2 extends TeamRobot {
 	}
 
 	private void update() {
-		dispatchMessages();
 		// calculate info from input
 		calculate();
 
@@ -97,22 +86,10 @@ public class WeirdmagedonV2 extends TeamRobot {
 		updateRadar();
 		updateGun();
 		updateMove();
+		execute();
 
 		// Predict world info for the next turn
 		predict();
-	}
-
-	private void dispatchMessages() {
-		for (Message m : messageBuffer) {
-			dispatchMessage(m);
-		}
-		messageBuffer.clear();
-	}
-
-	private void dispatchMessage(Message m) {
-		if (m instanceof ScanMessage sm) {
-			onScanMessage(sm);
-		}
 	}
 
 	private void calculate() {
@@ -126,14 +103,6 @@ public class WeirdmagedonV2 extends TeamRobot {
 				predictions[i] = predictions[i].constrain(0, 0, getBattleFieldWidth(), getBattleFieldHeight());
 			}
 			shootPosition = DUtils.calculateShootPosition(predictions, myPosition, getPower());
-			double targetEnergyDelta = (targetPriorEnergy - targetEnergy);
-			if (DODGE && 1 <= targetEnergyDelta && targetEnergyDelta <= 3) {
-				invertMoveDirection();
-			}
-			if (DUtils.iminentWallImpact(myPosition, getHeading(), moveDirection, WALL_LIMIT, getBattleFieldWidth(),
-					getBattleFieldHeight())) {
-				invertMoveDirection();
-			}
 		}
 	}
 
@@ -185,7 +154,7 @@ public class WeirdmagedonV2 extends TeamRobot {
 		} else {
 			setTurnRight(0);
 		}
-		setAhead(20 * moveDirection);
+		setAhead(8 * moveDirection);
 	}
 
 	// Methods
@@ -208,72 +177,48 @@ public class WeirdmagedonV2 extends TeamRobot {
 		moveDirection = -moveDirection;
 	}
 
-	private void setTarget(ScanMessage message) {
-		targetName = message.name;
-		priorScanTime = message.time - 1;
-		scanTime = message.time;
-		targetPriorHeading = targetHeading = message.heading;
-		targetPosition = message.position;
-		targetSpeed = message.speed;
-		targetPriorEnergy = targetEnergy = message.energy;
+	private void setTarget(ScannedRobotEvent event) {
+		targetName = event.getName();
+
+		priorScanTime = event.getTime() - 1;
+		scanTime = event.getTime();
+
+		targetPriorHeading = targetHeading = event.getHeading();
+
+		double tarAngle = Utils.normalAbsoluteAngleDegrees(getHeading() + event.getBearing());
+		double distance = event.getDistance();
+		targetPosition = myPosition.add(Vec2D.fromAngle(tarAngle).mul(distance));
+
+		targetSpeed = event.getVelocity();
+		calculate();
 	}
 
-	private void updateTarget(ScanMessage message) {
+	private void updateTarget(ScannedRobotEvent event) {
 		priorScanTime = scanTime;
-		scanTime = message.time;
+		scanTime = event.getTime();
+
 		targetPriorHeading = targetHeading;
-		targetHeading = message.heading;
-		targetPosition = message.position;
-		targetSpeed = message.speed;
-		targetPriorEnergy = targetEnergy;
-		targetEnergy = message.energy;
-	}
+		targetHeading = event.getHeading();
 
-	private void broadcast(Message message) {
-		// Prevents delay for local info
-		dispatchMessage(message);
-		try {
-			broadcastMessage(message);
-		} catch (IOException exception) {
-			out.println("ALERT: error sending message");
-		}
-	}
+		double tarAngle = Utils.normalAbsoluteAngleDegrees(getHeading() + event.getBearing());
+		double distance = event.getDistance();
+		targetPosition = myPosition.add(Vec2D.fromAngle(tarAngle).mul(distance));
 
-	// Message events
-
-	private void onScanMessage(ScanMessage message) {
-		if (!isTargetUpdated()) {
-			setTarget(message);
-		} else if (targetName.equals(message.name) && scanTime < message.time) {
-			updateTarget(message);
-		} else if (myPosition.distance(message.position) < targetDistance) {
-			setTarget(message);
-		}
+		targetSpeed = event.getVelocity();
+		calculate();
 	}
 
 	// Events
 
 	@Override
 	public void onScannedRobot(ScannedRobotEvent event) {
-		if (isTeammate(event.getName())) {
-			return;
+		if (!isTargetUpdated()) {
+			setTarget(event);
+		} else if (targetName.equals(event.getName())) {
+			updateTarget(event);
+		} else if (event.getDistance() < targetDistance) {
+			setTarget(event);
 		}
-		double tarAngle = Utils.normalAbsoluteAngleDegrees(getHeading() + event.getBearing());
-		double distance = event.getDistance();
-		Vec2D position = myPosition.add(Vec2D.fromAngle(tarAngle).mul(distance));
-		ScanMessage message = new ScanMessage(
-				event.getTime(),
-				event.getName(),
-				event.getHeading(),
-				event.getVelocity(),
-				event.getEnergy(),
-				position);
-		broadcast(message);
-	}
-
-	@Override
-	public void onMessageReceived(MessageEvent event) {
-		messageBuffer.add((Message) event.getMessage());
 	}
 
 	@Override
@@ -282,6 +227,7 @@ public class WeirdmagedonV2 extends TeamRobot {
 		double radarAngle = getRadarHeading();
 		double radarDelta = DUtils.calculateRadar(radarAngle, hitAngle, OVERSCAN);
 		setTurnRadarRight(radarDelta);
+		invertMoveDirection();
 	}
 
 	@Override
@@ -290,6 +236,7 @@ public class WeirdmagedonV2 extends TeamRobot {
 		double radarAngle = getRadarHeading();
 		double radarDelta = DUtils.calculateRadar(radarAngle, hitAngle, OVERSCAN);
 		setTurnRadarRight(radarDelta);
+		invertMoveDirection();
 	}
 
 	@Override
@@ -324,49 +271,7 @@ public class WeirdmagedonV2 extends TeamRobot {
 		}
 	}
 
-	public static class Message implements Serializable {
-
-		public final long time;
-
-		protected Message(long time) {
-			this.time = time;
-		}
-
-	}
-
-	public static class ScanMessage extends Message {
-
-		public final String name;
-		public final double heading;
-		public final double speed;
-		public final double energy;
-		public final Vec2D position;
-
-		public ScanMessage(long time, String name, double heading, double speed, double energy, Vec2D position) {
-			super(time);
-			this.name = name;
-			this.heading = heading;
-			this.speed = speed;
-			this.energy = energy;
-			this.position = position;
-		}
-
-		@Override
-		public int hashCode() {
-			return name.hashCode();
-		}
-
-		@Override
-		public boolean equals(Object other) {
-			if (other instanceof ScanMessage otherSM) {
-				return this.name.equals(otherSM.name);
-			}
-			return false;
-		}
-
-	}
-
-	public static class Vec2D implements Serializable {
+	public static class Vec2D {
 
 		public final double x;
 		public final double y;
@@ -488,15 +393,6 @@ public class WeirdmagedonV2 extends TeamRobot {
 				}
 			}
 			return bestPosition;
-		}
-
-		public static boolean iminentWallImpact(Vec2D position, double heading, double direction, double limit,
-				double width, double height) {
-			Vec2D speed2D = Vec2D.fromAngle(heading).mul(direction);
-			return speed2D.x < 0 && position.x < limit ||
-					speed2D.y < 0 && position.y < limit ||
-					0 < speed2D.x && width - limit < position.x ||
-					0 < speed2D.y && height - limit < position.y;
 		}
 
 		public static void drawPoint(Graphics2D graphics, Color color, Vec2D position, double size) {

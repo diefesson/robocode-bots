@@ -1,4 +1,4 @@
-package diefesson.rc;
+package diefesson;
 
 import java.awt.Color;
 import java.awt.Graphics2D;
@@ -37,16 +37,22 @@ public class WeirdmagedonV3 extends TeamRobot {
     // Config - movement
     private static final double NEAR = 150;
     private static final double FAR = 250;
-    private static final double ARENA_LIMIT = 100;
+    private static final double ARENA_LIMIT = 40;
 
     // Config - forces
-    private static final double MOVE_FORCE = 0.4;
+    private static final double MOVE_FORCE = 0.2;
+    private static final double RETHREAT_FORCE = 0.8;
+    private static final double ADVANCE_FORCE = 0.6;
     private static final double WALL_FORCE = 1;
     private static final double WAVE_FORCE = 1;
     private static final double FORCE_WEIGHT = 1.0;
 
     // Config - movement prediction
     private static final int PREDICTION_COUNT = 35;
+
+    // Config - dodging
+    private static final int DODGING_COUNT = 9;
+    private static final double DODGING_SPREAD = Rules.MAX_VELOCITY * 0.6;
 
     // Config - painting
     private static final boolean PAINT_RANGES = true;
@@ -67,9 +73,8 @@ public class WeirdmagedonV3 extends TeamRobot {
 
     // Info - calculated
     private long time;
-    private Rectangle arena;
-    private Rectangle arenaLimits;
     private Vec2D myPosition;
+    private Vec2D myPriorPosition;
     private Vec2D targetPriorPosition;
     private double myPriorHeading;
     private double myHeading;
@@ -82,9 +87,13 @@ public class WeirdmagedonV3 extends TeamRobot {
     private double targetAngle;
     private List<Wave> waves = new ArrayList<>();
     private List<Vec2D> forces = new ArrayList<>();
-    private Vec2D[] safeCandidates;
+    private Vec2D[] safeCandidates = new Vec2D[DODGING_COUNT];
     private Vec2D resultingForce;
     private Vec2D movement = Vec2D.ZERO;
+    
+    // Info - arena
+    private Rectangle arena;
+    private Rectangle arenaLimits;
 
     // Info - messaging
     private Set<Message> messageBuffer = new HashSet<>();
@@ -104,6 +113,7 @@ public class WeirdmagedonV3 extends TeamRobot {
         setColors();
         setAdjusts();
         arena = new Rectangle(18, 18, getBattleFieldWidth() - 18, getBattleFieldHeight() - 18);
+        Arrays.fill(safeCandidates, Vec2D.ZERO);
         arenaLimits = new Rectangle(
                 arena.xS + ARENA_LIMIT,
                 arena.yS + ARENA_LIMIT,
@@ -154,12 +164,13 @@ public class WeirdmagedonV3 extends TeamRobot {
     }
 
     private void calculateMe() {
+        myPriorPosition = myPosition;
         myPosition = new Vec2D(getX(), getY());
         myPriorHeading = myHeading;
         myHeading = getHeading();
         double myAngularSpeed = myHeading - myPriorHeading;
         DUtils.createPredictions(myPredictions, myPosition, getHeading(), getVelocity(), myAngularSpeed);
-        DUtils.constrainPositions(myPredictions, arena);
+        Vec2D.constrainAll(myPredictions, arena);
     }
 
     private void calculateTarget() {
@@ -169,7 +180,7 @@ public class WeirdmagedonV3 extends TeamRobot {
             targetAngularSpeed = (targetHeading - targetPriorHeading) / (scanTime - priorScanTime);
             targetEnergyDelta = (targetEnergy - targetPriorEnergy);
             DUtils.createPredictions(targetPredictions, targetPosition, targetHeading, targetSpeed, targetAngularSpeed);
-            DUtils.constrainPositions(targetPredictions, arena);
+            Vec2D.constrainAll(targetPredictions, arena);
             shootPosition = DUtils.calculateShootPosition(targetPredictions, myPosition, getPower());
         }
     }
@@ -182,16 +193,15 @@ public class WeirdmagedonV3 extends TeamRobot {
                 wavesIter.remove();
             }
         }
-        
+
         if (isTargetUpdated() && DUtils.isConstrained(targetEnergyDelta, -3, -1)) {
-            double linearAngle = targetPosition.lookAngle(myPosition);
-            Vec2D circularShootPosition = DUtils.calculateShootPosition(myPredictions, targetPosition,
+            double headsOnAngle = targetPriorPosition.lookAngle(myPriorPosition);
+            Vec2D circularShootPosition = DUtils.calculateShootPosition(myPredictions, targetPriorPosition,
                     targetEnergyDelta);
             double circularAngle = targetPosition.lookAngle(circularShootPosition);
             waves.add(
-                    new Wave(targetPriorPosition, linearAngle, circularAngle, Rules.getBulletSpeed(-targetEnergyDelta),
+                    new Wave(targetPriorPosition, headsOnAngle, circularAngle, Rules.getBulletSpeed(-targetEnergyDelta),
                             time - 2.0));
-            out.println("added wave");
         }
     }
 
@@ -221,22 +231,25 @@ public class WeirdmagedonV3 extends TeamRobot {
         if (wave != null) {
             double distance = wave.distance(myPosition, time);
             double remainingTime = distance / wave.speed;
+            double impactTime = time + remainingTime;
             Vec2D dodgingDelta = Vec2D.fromAngle(myPosition.lookAngle(wave.origin) + 90).mul(remainingTime)
-                    .mul(Rules.MAX_VELOCITY);
+                    .mul(DODGING_SPREAD);
             Vec2D rightPosition = myPosition.add(dodgingDelta);
             Vec2D leftPosition = myPosition.add(dodgingDelta.neg());
-            safeCandidates = new Vec2D[]{leftPosition, myPosition, rightPosition};
-            Vec2D safest = findSafestPosition(safeCandidates, wave, time + remainingTime);
-            forces.add(myPosition.look(safest).mul(WAVE_FORCE));
+            Vec2D.fillInterpolations(safeCandidates, rightPosition, leftPosition);
+            Vec2D.toCircleSurface(safeCandidates, wave.origin, wave.radius(impactTime));
+            Vec2D.constrainAll(safeCandidates, arenaLimits);
+            Vec2D safest = findSafestPosition(safeCandidates, wave, impactTime);
+            forces.add(myPosition.look(safest).mul(WAVE_FORCE).orZero());
         }
     }
 
     private void calculateMoveForces() {
         if (isTargetUpdated()) {
             if (targetDistance < NEAR) {
-                forces.add(targetPosition.look(myPosition).mul(MOVE_FORCE));
+                forces.add(targetPosition.look(myPosition).mul(RETHREAT_FORCE));
             } else if (FAR < targetDistance) {
-                forces.add(myPosition.look(targetPosition).mul(MOVE_FORCE));
+                forces.add(myPosition.look(targetPosition).mul(ADVANCE_FORCE));
             }
             Vec2D sideForce = Vec2D.fromAngle(targetAngle + 90);
             if (sideForce.dot(movement) < 0) {
@@ -338,12 +351,17 @@ public class WeirdmagedonV3 extends TeamRobot {
     }
 
     public Vec2D findSafestPosition(Vec2D[] positions, Wave wave, double time) {
-        Vec2D linearPosition = wave.linearPosition(time);
+        Vec2D headsOnPosition = wave.headsOnPosition(time);
         Vec2D circularPosition = wave.circularPosition(time);
         Vec2D safest = null;
-        double totalDistance = Double.MIN_VALUE;
+        double totalDistance = Double.NEGATIVE_INFINITY;
         for (Vec2D p : positions) {
-            double td = linearPosition.distance(p) + circularPosition.distance(p);
+            double headsOnDistance = headsOnPosition.distance(p);
+            double circularDistance = circularPosition.distance(p);
+            double td = headsOnDistance + circularDistance;
+            if (headsOnDistance < 18 || circularDistance < 18) {
+                td -= 100;
+            }
             if (td > totalDistance) {
                 safest = p;
                 totalDistance = td;
@@ -369,6 +387,7 @@ public class WeirdmagedonV3 extends TeamRobot {
         targetPriorPosition = targetPosition = message.position;
         targetSpeed = message.speed;
         targetPriorEnergy = targetEnergy = message.energy;
+        calculateTarget();
     }
 
     private void updateTarget(ScanMessage message) {
@@ -380,6 +399,7 @@ public class WeirdmagedonV3 extends TeamRobot {
         targetSpeed = message.speed;
         targetPriorEnergy = targetEnergy;
         targetEnergy = message.energy;
+        calculateTarget();
     }
 
     private void broadcast(Message message) {
@@ -470,13 +490,13 @@ public class WeirdmagedonV3 extends TeamRobot {
             DUtils.drawCircle(graphics, Color.YELLOW, myPosition, targetDistance);
         }
         if (PAINT_WAVES && !waves.isEmpty()) {
-            for (Vec2D candidate: safeCandidates){
+            for (Vec2D candidate : safeCandidates) {
                 DUtils.drawPoint(graphics, Color.WHITE, candidate, 5);
             }
             for (Wave wave : waves) {
                 DUtils.drawCircle(graphics, Color.BLUE, wave.origin, wave.radius(time));
-                DUtils.drawPoint(graphics, Color.BLUE, wave.linearPosition(time), 10);
-                DUtils.drawPoint(graphics, Color.GREEN, wave.circularPosition(time), 10);
+                DUtils.drawPoint(graphics, Color.GREEN, wave.headsOnPosition(time), 10);
+                DUtils.drawPoint(graphics, Color.RED, wave.circularPosition(time), 10);
             }
         }
         if (PAINT_FORCES) {
@@ -493,14 +513,14 @@ public class WeirdmagedonV3 extends TeamRobot {
     public static class Wave {
 
         public final Vec2D origin;
-        public final double linearAngle;
+        public final double headsOnAngle;
         public final double circularAngle;
         public final double speed;
         public final double startTime;
 
-        public Wave(Vec2D origin, double linearAngle, double circularAngle, double speed, double startTime) {
+        public Wave(Vec2D origin, double headsOnAngle, double circularAngle, double speed, double startTime) {
             this.origin = origin;
-            this.linearAngle = linearAngle;
+            this.headsOnAngle = headsOnAngle;
             this.circularAngle = circularAngle;
             this.speed = speed;
             this.startTime = startTime;
@@ -522,8 +542,8 @@ public class WeirdmagedonV3 extends TeamRobot {
             return origin.distance(position) < radius(time);
         }
 
-        public Vec2D linearPosition(double time) {
-            return origin.add(Vec2D.fromAngle(linearAngle).mul(radius(time)));
+        public Vec2D headsOnPosition(double time) {
+            return origin.add(Vec2D.fromAngle(headsOnAngle).mul(radius(time)));
         }
 
         public Vec2D circularPosition(double time) {
@@ -689,6 +709,26 @@ public class WeirdmagedonV3 extends TeamRobot {
             return "x: " + this.x + ", y: " + this.y;
         }
 
+        public static void constrainAll(Vec2D[] positions, Rectangle rectangle) {
+            for (int i = 0; i < positions.length; i++) {
+                positions[i] = positions[i].constrain(rectangle);
+            }
+        }
+
+        public static void fillInterpolations(Vec2D[] interpolations, Vec2D from, Vec2D to) {
+            int count = interpolations.length - 1;
+            for (int i = 0; i <= count; i++) {
+                interpolations[i] = from.lerp(to, (double) i / count);
+            }
+        }
+
+        public static void toCircleSurface(Vec2D[] points, Vec2D origin, double radius) {
+            for (int i = 0; i < points.length; i++) {
+                double angle = origin.lookAngle(points[i]);
+                points[i] = origin.add(Vec2D.fromAngle(angle).mul(radius));
+            }
+        }
+
     }
 
     public static class DUtils {
@@ -732,12 +772,6 @@ public class WeirdmagedonV3 extends TeamRobot {
                 position = position.add(delta);
                 predictions[i] = position;
                 angle += angularSpeed;
-            }
-        }
-
-        public static void constrainPositions(Vec2D[] positions, Rectangle rectangle) {
-            for (int i = 0; i < positions.length; i++) {
-                positions[i] = positions[i].constrain(rectangle);
             }
         }
 

@@ -1,4 +1,4 @@
-package diefesson.rc;
+package diefesson;
 
 import robocode.*;
 import java.awt.Color;
