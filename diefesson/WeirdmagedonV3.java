@@ -89,7 +89,7 @@ public class WeirdmagedonV3 extends TeamRobot {
     private Vec2D[] safeCandidates = new Vec2D[DODGING_COUNT];
     private Vec2D resultingForce;
     private Vec2D movement = Vec2D.ZERO;
-    
+
     // Info - arena
     private Rectangle arena;
     private Rectangle arenaLimits;
@@ -480,33 +480,33 @@ public class WeirdmagedonV3 extends TeamRobot {
             DUtils.drawCircle(graphics, Color.LIGHT_GRAY, myPosition, LONG_RANGE);
         }
         if (isTargetUpdated() && PAINT_TARGETING) {
-            DUtils.drawPoint(graphics, Color.RED, targetPosition, 10);
+            DUtils.drawPoint(graphics, Color.RED, targetPosition);
             for (Vec2D p : targetPredictions) {
-                DUtils.drawPoint(graphics, Color.YELLOW, p, 5);
+                DUtils.drawPoint(graphics, Color.YELLOW, p);
             }
-            DUtils.drawPoint(graphics, Color.RED, shootPosition, 10);
-            DUtils.drawAngle(graphics, Color.YELLOW, myPosition, getGunHeading(), 1000);
+            DUtils.drawPoint(graphics, Color.RED, shootPosition);
+            DUtils.drawAngle(graphics, Color.YELLOW, myPosition, getGunHeading(), 1200);
 
             DUtils.drawCircle(graphics, Color.YELLOW, myPosition, targetDistance);
         }
         if (!waves.isEmpty() && PAINT_WAVES) {
             for (Vec2D candidate : safeCandidates) {
-                DUtils.drawPoint(graphics, Color.WHITE, candidate, 5);
+                DUtils.drawPoint(graphics, Color.GREEN, candidate);
             }
             for (Wave wave : waves) {
-                DUtils.drawCircle(graphics, Color.BLUE, wave.origin, wave.radius(time));
-                DUtils.drawPoint(graphics, Color.GREEN, wave.headsOnPosition(time), 10);
-                DUtils.drawPoint(graphics, Color.RED, wave.circularPosition(time), 10);
+                DUtils.drawCircle(graphics, Color.CYAN, wave.origin, wave.radius(time));
+                DUtils.drawPoint(graphics, Color.YELLOW, wave.headsOnPosition(time));
+                DUtils.drawPoint(graphics, Color.RED, wave.circularPosition(time));
             }
         }
         if (PAINT_FORCES) {
-            DUtils.drawRectangle(graphics, Color.blue, arenaLimits);
+            DUtils.drawRectangle(graphics, Color.BLUE, arenaLimits);
             for (Vec2D force : forces) {
-                DUtils.drawAngle(graphics, Color.GRAY, myPosition, force.angle(), force.magnitude() * 200);
+                DUtils.drawAngle(graphics, Color.WHITE, myPosition, force.angle(), force.magnitude() * 200);
             }
-            DUtils.drawAngle(graphics, Color.WHITE, myPosition, resultingForce.angle(),
+            DUtils.drawAngle(graphics, Color.BLUE, myPosition, resultingForce.angle(),
                     resultingForce.magnitude() * 200);
-            DUtils.drawAngle(graphics, Color.BLUE, myPosition, movement.angle(), movement.magnitude() * 200);
+            DUtils.drawAngle(graphics, Color.CYAN, myPosition, movement.angle(), movement.magnitude() * 200);
         }
     }
 
@@ -800,11 +800,11 @@ public class WeirdmagedonV3 extends TeamRobot {
                     0 < speed2D.y && height - limit < position.y);
         }
 
-        public static void drawPoint(Graphics2D graphics, Color color, Vec2D position, double size) {
-            var x = position.x - size / 2;
-            var y = position.y - size / 2;
+        public static void drawPoint(Graphics2D graphics, Color color, Vec2D position) {
+            double x = position.x - 4;
+            double y = position.y - 4;
             graphics.setColor(color);
-            graphics.fillRect((int) x, (int) y, (int) size, (int) size);
+            graphics.fillRect((int) x, (int) y, 8, 8);
         }
 
         public static void drawLine(Graphics2D graphics, Color color, Vec2D from, Vec2D to) {
