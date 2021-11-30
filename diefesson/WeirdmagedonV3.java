@@ -305,6 +305,7 @@ public class WeirdmagedonV3 extends TeamRobot {
         if (isTargetUpdated()) {
             targetPriorPosition = targetPosition;
             targetPosition = targetPredictions[0];
+            targetPriorEnergy = targetEnergy;
         }
     }
 
